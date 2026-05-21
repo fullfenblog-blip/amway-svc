@@ -1,6 +1,6 @@
 // Vercel Serverless Function: /api/quiz
 // Proxies AI quiz generation requests to Google Gemini API (free tier).
-// Keeps the API key secret on the server side.
+// Uses Gemini 2.5 Flash with thinking disabled for fast, cost-efficient generation.
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
@@ -18,13 +18,12 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Server is not configured. GEMINI_API_KEY env variable is missing." });
   }
 
-  const { prompt, max_tokens = 2500 } = req.body || {};
+  const { prompt, max_tokens = 8000 } = req.body || {};
   if (!prompt || typeof prompt !== "string") {
     return res.status(400).json({ error: "Missing or invalid 'prompt' field" });
   }
 
   try {
-    // Use Gemini 2.5 Flash (best balance of quality + free quota)
     const model = "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -37,6 +36,8 @@ export default async function handler(req, res) {
           maxOutputTokens: max_tokens,
           temperature: 0.7,
           responseMimeType: "application/json",
+          // Disable thinking mode — saves tokens & latency, sufficient for quiz generation
+          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     });
@@ -47,16 +48,23 @@ export default async function handler(req, res) {
       return res.status(r.status).json({ error: data.error?.message || "Gemini API request failed" });
     }
 
-    // Extract text from Gemini response format
-    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    // Extract text from Gemini response
+    const candidate = data.candidates?.[0];
+    const text = candidate?.content?.parts?.map(p => p.text || "").join("") || "";
+
+    // Detect truncation
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      console.warn("Response truncated due to MAX_TOKENS");
+      return res.status(500).json({ error: "AI 回應被截斷，請減少出題數量後重試" });
+    }
+
     if (!text) {
-      return res.status(500).json({ error: "Empty response from Gemini" });
+      console.error("Empty response. Candidate:", candidate);
+      return res.status(500).json({ error: "Gemini 回應為空，可能觸發安全過濾，請重試" });
     }
 
     // Return in Anthropic-compatible format so frontend doesn't need changes
-    return res.status(200).json({
-      content: [{ type: "text", text }],
-    });
+    return res.status(200).json({ content: [{ type: "text", text }] });
   } catch (e) {
     console.error("Proxy error:", e);
     return res.status(500).json({ error: e.message || "Internal error" });
