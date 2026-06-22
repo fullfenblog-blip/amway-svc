@@ -150,10 +150,24 @@ function AcceptanceRecords({forms,onRefresh,accounts}){
     if(search.trim()){const q=search.trim().toLowerCase();return[r.techName,r.orderNo,r.machineNo,r.custName,r.techGroup].some(f=>(f||"").toLowerCase().includes(q));}
     return true;
   });
+  const exportXlsx=()=>{
+    if(filtered.length===0){alert("無記錄可匯出");return;}
+    const wb=XLSX.utils.book_new();
+    const SVC={install:"新機安裝",repair:"到府維修",health:"健檢清潔"};
+    const head=["日期","服務類型","廠商","技師","所屬單位","工單號","機號","保固狀態","客戶","客戶簽收","服務費","零件費","分數(%)","驗收結論","複驗備註","提交時間","提交人"];
+    const aoa=[head,...filtered.map(r=>[r.svcDate||"",SVC[r.svcType]||r.svcType||"",r.vendor==="xinyu"?"新宇":"通達",r.techName||r.techUsername||"",r.techGroup||"",r.orderNo||"",r.machineNo||"",r.warranty==="in"?"保固內":r.warranty==="out"?"保固外":"",r.custName||"",r.custSign==="yes"?"已簽收":r.custSign==="no"?"未簽收":"",r.svcFee||"",r.partsFee||"",r.score!=null?r.score:"",r.verdict==="pass"?"通過":r.verdict==="recheck"?"需複驗":"",r.verdictNote||"",r.submittedAt?new Date(r.submittedAt).toLocaleString("zh-TW"):"",r.submittedBy||""])];
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"]=[{wch:12},{wch:10},{wch:8},{wch:12},{wch:12},{wch:16},{wch:14},{wch:10},{wch:12},{wch:10},{wch:10},{wch:10},{wch:8},{wch:10},{wch:20},{wch:20},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,ws,"驗收記錄");
+    const today=new Date().toISOString().slice(0,10);
+    const fname=filter==="pass"?"到府驗收記錄_通過_"+today+".xlsx":filter==="recheck"?"到府驗收記錄_需複驗_"+today+".xlsx":"到府驗收記錄_全部_"+today+".xlsx";
+    XLSX.writeFile(wb,fname);
+  };
   if(selected)return React.createElement(AcceptanceDetail,{form:selected,onBack:()=>setSelected(null),accounts});
   return React.createElement("div",null,
     React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}},
       React.createElement("div",{className:"display",style:{fontSize:24,fontWeight:800,flex:1}},"驗收記錄"),
+      React.createElement("button",{className:"btn-secondary",style:{marginRight:8},onClick:exportXlsx,disabled:filtered.length===0},"📥 匯出 Excel"),
       React.createElement("button",{className:"btn-ghost",onClick:onRefresh},"↺ 重整")),
     React.createElement("div",{className:"card",style:{marginBottom:14}},
       React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}},
